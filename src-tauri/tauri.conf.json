@@ -1,0 +1,35 @@
+{
+  "productName": "DeskTube",
+  "version": "0.1.0",
+  "identifier": "com.desktube.app",
+  "build": {
+    "beforeDevCommand": "pnpm dev",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "pnpm build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "DeskTube",
+        "width": 1100,
+        "height": 720,
+        "minWidth": 800,
+        "minHeight": 500
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "externalBin": ["binaries/yt-dlp"],
+    "icon": [
+      "icons/desktube-v4-32.png",
+      "icons/desktube-v4-128.png",
+      "icons/desktube-v4.ico"
+    ]
+  }
+}

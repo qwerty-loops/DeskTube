@@ -1,0 +1,42 @@
+[package]
+name = "desk-tube"
+version = "0.1.0"
+description = "Lightweight native YouTube Music desktop client"
+edition = "2021"
+rust-version = "1.77.2"
+
+[lib]
+name = "desk_tube_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-opener = "2"
+tauri-plugin-shell = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["full"] }
+reqwest = { version = "0.12", features = ["rustls-tls", "json", "stream"], default-features = false }
+rodio = { version = "0.20", features = ["symphonia-all"] }
+symphonia = { version = "0.5.5", features = ["all"] }
+url = "2.5"
+keyring = { version = "3.6", features = ["windows-native"] }
+tauri-plugin-global-shortcut = "2"
+roxmltree = "0.20"
+qrcode = "0.14"
+windows = { version = "0.54", features = [
+    "Media",
+    "Media_Control",
+    "Media_Playback",
+    "Foundation",
+    "Foundation_Collections",
+    "Storage_Streams",
+    "Win32_Foundation",
+    "Win32_System_Com",
+    "Win32_System_WinRT",
+    "Win32_UI_Shell",
+    "Win32_UI_WindowsAndMessaging",
+] }
