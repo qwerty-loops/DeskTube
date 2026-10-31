@@ -55,4 +55,5 @@ Rebuild `dist/` after frontend changes when testing the local launcher. Restart 
 - Never disable OS security features or weaken repository security settings to make a build pass.
 - Report verification limits honestly, especially for unofficial YouTube endpoints and Windows-only behavior.
 - Do not claim Premium is required or guarantee availability for all tracks. The current public playback lookup does not use account credentials.
-- Do not commit or push unless requested. Never force-push without specific approval.
+- Do not commit or push unless requested. Never force-push without specific approval.'
+- Do not include Devin or Devin Bot or add Devin Bot as a collaborator when committed or pushed to github. Especially avoid adding Devin Bot as a collaborator when I ask you to commit or push.
