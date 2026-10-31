@@ -2,8 +2,6 @@ use std::path::Path;
 
 use serde_json::{json, Value};
 
-const INNERTUBE_API_KEY: &str = "AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8";
-const ANDROID_API_KEY: &str = "AIzaSyA8eiZmM1FaDVjRy-df2KTyQ_vz_yYM39w";
 const SEARCH_URL: &str = "https://music.youtube.com/youtubei/v1/search";
 const PLAYER_URL: &str = "https://www.youtube.com/youtubei/v1/player";
 
@@ -101,13 +99,7 @@ impl Innertube {
                 "query": query,
                 "params": params
             });
-            let resp: Value = match self
-                .http
-                .post(format!("{SEARCH_URL}?key={INNERTUBE_API_KEY}"))
-                .json(&body)
-                .send()
-                .await
-            {
+            let resp: Value = match self.http.post(SEARCH_URL).json(&body).send().await {
                 Ok(response) => match response.json().await {
                     Ok(value) => value,
                     Err(e) => {
@@ -156,9 +148,7 @@ impl Innertube {
         });
         let response: Value = self
             .http
-            .post(format!(
-                "https://music.youtube.com/youtubei/v1/next?key={INNERTUBE_API_KEY}"
-            ))
+            .post("https://music.youtube.com/youtubei/v1/next")
             .json(&body)
             .send()
             .await
@@ -235,9 +225,7 @@ impl Innertube {
     /// Anonymous Innertube browse for public artist/album pages.
     async fn browse(&self, browse_id: &str) -> Result<Value, String> {
         self.http
-            .post(format!(
-                "https://music.youtube.com/youtubei/v1/browse?key={INNERTUBE_API_KEY}"
-            ))
+            .post("https://music.youtube.com/youtubei/v1/browse")
             .json(&json!({
                 "context": Self::web_remix_context(),
                 "browseId": browse_id
@@ -406,7 +394,7 @@ impl Innertube {
     pub async fn download_audio(&self, video_id: &str, output_path: &Path) -> Result<(), String> {
         let response: Value = self
             .http
-            .post(format!("{PLAYER_URL}?key={ANDROID_API_KEY}"))
+            .post(PLAYER_URL)
             .header(
                 reqwest::header::USER_AGENT,
                 "com.google.android.youtube/20.10.38 (Linux; U; Android 11) gzip",
@@ -591,9 +579,7 @@ impl Innertube {
         });
         let response: Value = self
             .http
-            .post(format!(
-                "https://music.youtube.com/youtubei/v1/next?key={INNERTUBE_API_KEY}"
-            ))
+            .post("https://music.youtube.com/youtubei/v1/next")
             .json(&body)
             .send()
             .await
@@ -607,9 +593,7 @@ impl Innertube {
 
         let response: Value = self
             .http
-            .post(format!(
-                "https://music.youtube.com/youtubei/v1/browse?key={INNERTUBE_API_KEY}"
-            ))
+            .post("https://music.youtube.com/youtubei/v1/browse")
             .json(&json!({
                 "context": {
                     "client": {
