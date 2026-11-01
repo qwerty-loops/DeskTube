@@ -7,6 +7,7 @@ src-tauri/binaries/
 *.local
 client_secret_*.json*
 google-oauth.json
+google-oauth-desktop.json
 .env
 .env.*
 !.env.example

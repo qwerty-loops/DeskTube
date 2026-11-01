@@ -30,10 +30,12 @@ Search and playback work without an account. Liked music and account playlists r
 
 1. Create a project in Google Cloud Console and enable **YouTube Data API v3**.
 2. Configure the OAuth consent screen. If the project is in Testing, add your Google account as a test user.
-3. Create an OAuth client  with the type **TVs and Limited Input devices**, then download its JSON file.
+3. Create a **Desktop app** OAuth client, then download its JSON file.
 4. Press `Win + R`, enter `%APPDATA%\DeskTube`, and create the folder if needed.
-5. Save the downloaded file there as `google-oauth.json`.
-6. Restart DeskTube and click **Connect Google**. Follow the browser instructions and enter the code shown in the app.
+5. Save the downloaded file there as `google-oauth-desktop.json`.
+6. Restart DeskTube and click **Connect Google**. Approve access in your browser; DeskTube updates automatically.
+
+Existing TV-device configurations in `google-oauth.json` still use code-entry login when no Desktop configuration exists. Keep that file unchanged while testing the new flow. Switching clients requires signing in again; a successful new login replaces the previously saved token.
 
 Keep this JSON private and out of Git. Saved sign-in tokens use Windows Credential Manager. Google may require additional consent or verification depending on the project's configuration.
 

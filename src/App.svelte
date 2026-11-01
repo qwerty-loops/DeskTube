@@ -77,6 +77,7 @@
   let homeTracks = $state<TrackResult[]>([]);
   let homeLoaded = $state(false);
   let libraryTracks = $state<TrackResult[]>([]);
+  const RECENT_KEY = "desktube-recent-tracks";
   let recentTracks = $state<TrackResult[]>(loadRecent());
   let likedIds = $state<Set<string>>(new Set());
   let playlists = $state<PlaylistSummary[]>([]);
@@ -532,7 +533,7 @@
 
   async function createNewPlaylist() {
     if (!auth.signed_in) return;
-    const title = window.prompt("Playlist name");
+    const title = window.prompt("Create a private playlist in your YouTube account. Playlist name:");
     if (!title?.trim()) return;
     try {
       const playlist = await invoke<PlaylistSummary>("create_playlist", { title: title.trim() });
@@ -1093,8 +1094,6 @@
     image.src = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 200'%3E%3Ccircle cx='100' cy='100' r='100' fill='%231ed760'/%3E%3Cpath d='M78 52v96l82-48z' fill='white'/%3E%3C/svg%3E";
   }
 
-  const RECENT_KEY = "desktube-recent-tracks";
-
   function loadRecent(): TrackResult[] {
     try {
       const parsed = JSON.parse(localStorage.getItem(RECENT_KEY) ?? "[]") as TrackResult[];
@@ -1184,14 +1183,20 @@
           <span class="nav-text"><strong>{auth.profile?.name}</strong><small>Sign out</small></span>
         </button>
       {:else}
-        <button class="account-button signed-out" type="button" onclick={() => void signIn()} disabled={accountLoading}>
+        <button class="account-button signed-out" type="button" onclick={() => void signIn()} disabled={accountLoading || authPrompt !== null}>
           <span class="account-avatar"><svg viewBox="0 0 24 24"><path d="M12 12a4 4 0 1 0-4-4 4 4 0 0 0 4 4Zm0 2c-4 0-7 2-7 5v1h14v-1c0-3-3-5-7-5Z"/></svg></span><span class="nav-text"><strong>{accountLoading ? "Connecting…" : "Connect Google"}</strong><small>Likes & playlists</small></span>
         </button>
         {#if authPrompt}
           <div class="device-code">
-            <span>Enter this code at google.com/device</span>
-            <button type="button" onclick={() => void copyAuthCode()}>{authPrompt.user_code}</button>
-            <small>{authCodeCopied ? "Copied" : "Click code to copy"}</small>
+            {#if authPrompt.user_code}
+              <span>Enter this code at google.com/device</span>
+              <button type="button" onclick={() => void copyAuthCode()}>{authPrompt.user_code}</button>
+              <small>{authCodeCopied ? "Copied" : "Click code to copy"}</small>
+            {:else}
+              <span>Finish signing in with Google in your browser.</span>
+              <button type="button" onclick={() => void openUrl(authPrompt!.verification_url)}>Open browser again</button>
+              <small>This window updates automatically after approval.</small>
+            {/if}
           </div>
         {/if}
       {/if}
@@ -1275,7 +1280,7 @@
         </div>
         <div class="heading-actions">
           {#if activeView === "explore"}<button class="play-all explore-refresh" type="button" onclick={() => void buildExplore()} disabled={exploreLoading} title="New recommendations"><svg viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.3-5.6M20 4v5h-5"/></svg>{exploreLoading ? "Mixing…" : "Refresh"}</button>{/if}
-          {#if visibleTracks.length}<button class="play-all" type="button" onclick={() => { queue = [...visibleTracks]; void playAt(0); }}>Play all</button>{/if}
+          {#if visibleTracks.length}<button class="play-all" type="button" onclick={() => { originalQueue = [...visibleTracks]; queue = shuffle(visibleTracks); shuffleMode = true; localStorage.setItem("desktube-shuffle", "1"); void playAt(0); }}>Shuffle music</button>{/if}
         </div>
       </div>
 
@@ -1518,12 +1523,12 @@
   .topbar-action:hover { color: #fff; background: #ffffff14; }
   .topbar-action.active { color: var(--accent); }
   .topbar-action svg { width: 18px; height: 18px; }
-  .shuffle-toggle { display: grid; place-items: center; padding: 4px; border: 0; border-radius: 6px; background: transparent; color: #71747d; cursor: pointer; transition: color .15s, background .15s; }
-  .shuffle-toggle:hover { color: #fff; }
-  .shuffle-toggle.active { color: var(--accent); }
-  .shuffle-toggle.active::after { content: ""; width: 4px; height: 4px; margin-top: 1px; border-radius: 50%; background: var(--accent); }
-  .shuffle-toggle:disabled { opacity: .4; cursor: default; }
-  .shuffle-toggle svg { width: 17px; height: 17px; }
+  .transport .shuffle-toggle { position: relative; width: 32px; height: 32px; border: 1px solid #ffffff20; border-radius: 8px; background: #ffffff0a; color: #d5d7dd; transition: color .15s, background .15s; }
+  .transport .shuffle-toggle:hover { color: #fff; background: #ffffff20; }
+  .transport .shuffle-toggle.active { color: var(--accent); border-color: #1ed76066; background: #1ed76020; }
+  .transport .shuffle-toggle.active::after { content: ""; position: absolute; bottom: 2px; width: 3px; height: 3px; border-radius: 50%; background: var(--accent); }
+  .transport .shuffle-toggle:disabled { opacity: .4; cursor: default; }
+  .transport .shuffle-toggle svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
   form { display: flex; max-width: 760px; gap: 10px; }
   .search-box { position: relative; flex: 1; }
   .search-box > svg { position: absolute; left: 14px; top: 50%; translate: 0 -50%; width: 17px; color: var(--accent); }

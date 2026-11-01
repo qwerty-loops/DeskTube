@@ -29,7 +29,7 @@ pnpm.cmd tauri dev
 
 Before starting Tauri, place the official Windows x64 yt-dlp executable at `src-tauri/binaries/yt-dlp-x86_64-pc-windows-msvc.exe`. This directory is ignored by Git; CI downloads the sidecar during release builds.
 
-Google sign-in is optional and currently requires a local OAuth client JSON at `%APPDATA%\DeskTube\google-oauth.json`. Do not read or print its credential values. Missing configuration must not prevent signed-out startup, search, or playback.
+Google sign-in is optional. A Desktop OAuth JSON at `%APPDATA%\DeskTube\google-oauth-desktop.json` takes precedence and enables browser login with PKCE and a loopback callback. Otherwise `%APPDATA%\DeskTube\google-oauth.json` is used; existing TV clients retain code-entry login. Do not read or print credential values. Missing configuration must not prevent signed-out startup, search, or playback. Switching clients requires a new login; loading a different client does not delete the previous stored token, but completing a login replaces it.
 
 ## Verification
 

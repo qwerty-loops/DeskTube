@@ -2,9 +2,13 @@ use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
+use rand::RngCore;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use sha2::{Digest, Sha256};
 use tauri::{AppHandle, Emitter};
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::RwLock;
 
 const KEYRING_SERVICE: &str = "com.desktube.app";
@@ -26,6 +30,8 @@ struct OAuthCredentials {
     client_id: String,
     client_secret: String,
     token_uri: String,
+    #[serde(default)]
+    redirect_uris: Vec<String>,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -101,9 +107,13 @@ impl AuthManager {
     pub fn new() -> Result<Arc<Self>, String> {
         let app_data =
             std::env::var("APPDATA").map_err(|_| "APPDATA is unavailable".to_string())?;
-        let config_path = std::path::Path::new(&app_data)
-            .join("DeskTube")
-            .join("google-oauth.json");
+        let config_dir = std::path::Path::new(&app_data).join("DeskTube");
+        let desktop_path = config_dir.join("google-oauth-desktop.json");
+        let config_path = if desktop_path.exists() {
+            desktop_path
+        } else {
+            config_dir.join("google-oauth.json")
+        };
         let credentials = std::fs::read_to_string(&config_path)
             .ok()
             .and_then(|config| {
@@ -115,6 +125,7 @@ impl AuthManager {
                 client_id: String::new(),
                 client_secret: String::new(),
                 token_uri: "https://oauth2.googleapis.com/token".to_string(),
+                redirect_uris: Vec::new(),
             });
         let token = load_token().and_then(|token| {
             if credentials.client_id.is_empty() {
@@ -123,11 +134,12 @@ impl AuthManager {
             if token.client_id.as_deref() == Some(credentials.client_id.as_str()) {
                 Some(token)
             } else {
-                let _ = delete_token();
                 None
             }
         });
         let http = reqwest::Client::builder()
+            .connect_timeout(Duration::from_secs(10))
+            .timeout(Duration::from_secs(30))
             .user_agent("DeskTube/0.1.0")
             .build()
             .map_err(|e| format!("failed to create OAuth client: {e}"))?;
@@ -145,6 +157,13 @@ impl AuthManager {
     ) -> Result<DeviceAuthPrompt, String> {
         if self.credentials.client_id.is_empty() || self.credentials.client_secret.is_empty() {
             return Err("Google sign-in is not configured. Place your OAuth client JSON at %APPDATA%\\DeskTube\\google-oauth.json and restart DeskTube. You can still search and play music without signing in.".to_string());
+        }
+        if self.credentials.redirect_uris.iter().any(|uri| {
+            url::Url::parse(uri).is_ok_and(|url| {
+                url.scheme() == "http" && matches!(url.host_str(), Some("localhost" | "127.0.0.1"))
+            })
+        }) {
+            return self.begin_desktop_sign_in(app).await;
         }
         let response = self
             .http
@@ -184,6 +203,126 @@ impl AuthManager {
             }
         });
         Ok(prompt)
+    }
+
+    async fn begin_desktop_sign_in(
+        self: &Arc<Self>,
+        app: AppHandle,
+    ) -> Result<DeviceAuthPrompt, String> {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .map_err(|_| "Could not start the local Google sign-in callback".to_string())?;
+        let port = listener
+            .local_addr()
+            .map_err(|_| "Could not determine callback port".to_string())?
+            .port();
+        let redirect = format!("http://127.0.0.1:{port}/oauth/callback");
+        let mut random = [0u8; 32];
+        rand::rngs::OsRng.fill_bytes(&mut random);
+        let verifier = URL_SAFE_NO_PAD.encode(random);
+        rand::rngs::OsRng.fill_bytes(&mut random);
+        let state = URL_SAFE_NO_PAD.encode(random);
+        let challenge = URL_SAFE_NO_PAD.encode(Sha256::digest(verifier.as_bytes()));
+        let mut authorization = url::Url::parse("https://accounts.google.com/o/oauth2/v2/auth")
+            .map_err(|_| "Invalid authorization endpoint".to_string())?;
+        authorization.query_pairs_mut().extend_pairs([
+            ("client_id", self.credentials.client_id.as_str()),
+            ("redirect_uri", redirect.as_str()),
+            ("response_type", "code"),
+            ("scope", "https://www.googleapis.com/auth/youtube"),
+            ("access_type", "offline"),
+            ("prompt", "consent"),
+            ("state", state.as_str()),
+            ("code_challenge", challenge.as_str()),
+            ("code_challenge_method", "S256"),
+        ]);
+        let manager = self.clone();
+        tauri::async_runtime::spawn(async move {
+            let result = tokio::time::timeout(Duration::from_secs(300), async {
+                loop {
+                    let (mut stream, _) = listener.accept().await.map_err(|_| "Sign-in callback failed".to_string())?;
+                    let mut request = vec![0u8; 8192];
+                    let size = match tokio::time::timeout(Duration::from_secs(5), stream.read(&mut request)).await {
+                        Ok(Ok(size)) if size > 0 => size,
+                        _ => continue,
+                    };
+                    let request = String::from_utf8_lossy(&request[..size]);
+                    let Some(target) = request.lines().next().and_then(|line| line.strip_prefix("GET ")).and_then(|line| line.split_whitespace().next()) else { continue };
+                    let Ok(callback) = url::Url::parse(&format!("http://127.0.0.1{target}")) else { continue };
+                    let params: std::collections::HashMap<_, _> = callback.query_pairs().into_owned().collect();
+                    if callback.path() != "/oauth/callback" || params.get("state") != Some(&state) {
+                        let _ = stream.write_all(b"HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").await;
+                        continue;
+                    }
+                    let result = if params.contains_key("error") {
+                        Err("Google sign-in was cancelled or denied".to_string())
+                    } else if let Some(code) = params.get("code") {
+                        manager.exchange_desktop_code(code, &redirect, &verifier).await
+                    } else {
+                        Err("Google returned no sign-in code".to_string())
+                    };
+                    let body = if result.is_ok() { "Signed in to DeskTube. You can close this tab." } else { "Sign-in did not complete. Return to DeskTube for details." };
+                    let response = format!("HTTP/1.1 200 OK\r\nContent-Type: text/plain; charset=utf-8\r\nCache-Control: no-store\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len());
+                    let _ = stream.write_all(response.as_bytes()).await;
+                    return result;
+                }
+            }).await.unwrap_or_else(|_| Err("Google sign-in timed out. Click Connect Google to try again.".to_string()));
+            match result {
+                Ok(()) => {
+                    let _ = app.emit("auth-updated", true);
+                }
+                Err(error) => {
+                    let _ = app.emit("auth-error", error);
+                }
+            }
+        });
+        Ok(DeviceAuthPrompt {
+            verification_url: authorization.to_string(),
+            user_code: String::new(),
+        })
+    }
+
+    async fn exchange_desktop_code(
+        &self,
+        code: &str,
+        redirect: &str,
+        verifier: &str,
+    ) -> Result<(), String> {
+        let response = self
+            .http
+            .post("https://oauth2.googleapis.com/token")
+            .timeout(Duration::from_secs(30))
+            .form(&[
+                ("client_id", self.credentials.client_id.as_str()),
+                ("client_secret", self.credentials.client_secret.as_str()),
+                ("code", code),
+                ("redirect_uri", redirect),
+                ("code_verifier", verifier),
+                ("grant_type", "authorization_code"),
+            ])
+            .send()
+            .await
+            .map_err(|_| {
+                "Google token exchange could not connect. Try signing in again.".to_string()
+            })?;
+        if !response.status().is_success() {
+            return Err("Google rejected the sign-in exchange. Check the Desktop client configuration and test-user access.".to_string());
+        }
+        let response = response
+            .json::<TokenResponse>()
+            .await
+            .map_err(|_| "Google returned an invalid token response".to_string())?;
+        let token = TokenSet {
+            access_token: response.access_token,
+            refresh_token: response.refresh_token.ok_or_else(|| {
+                "Google did not grant offline access. Try signing in again.".to_string()
+            })?,
+            expires_at: unix_time() + response.expires_in,
+            client_id: Some(self.credentials.client_id.clone()),
+        };
+        save_token(&token)?;
+        *self.token.write().await = Some(token);
+        Ok(())
     }
 
     async fn finish_device_sign_in(
@@ -986,8 +1125,35 @@ fn format_duration(duration_ms: u64) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::AuthManager;
+    use super::{AuthManager, OAuthFile, URL_SAFE_NO_PAD};
+    use base64::Engine;
     use serde_json::Value;
+    use sha2::{Digest, Sha256};
+
+    #[test]
+    fn pkce_s256_matches_rfc7636() {
+        let verifier = "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk";
+        assert_eq!(
+            URL_SAFE_NO_PAD.encode(Sha256::digest(verifier.as_bytes())),
+            "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM"
+        );
+    }
+
+    #[test]
+    fn legacy_oauth_config_remains_compatible() {
+        let config: OAuthFile = serde_json::from_value(serde_json::json!({
+            "installed": { "client_id": "test", "client_secret": "test", "token_uri": "https://oauth2.googleapis.com/token" }
+        })).unwrap();
+        assert!(config.installed.redirect_uris.is_empty());
+    }
+
+    #[test]
+    fn desktop_config_preserves_loopback_redirect() {
+        let config: OAuthFile = serde_json::from_value(serde_json::json!({
+            "installed": { "client_id": "test", "client_secret": "test", "token_uri": "https://oauth2.googleapis.com/token", "redirect_uris": ["http://localhost"] }
+        })).unwrap();
+        assert_eq!(config.installed.redirect_uris, vec!["http://localhost"]);
+    }
 
     #[tokio::test]
     #[ignore = "requires a locally signed-in Google account"]
